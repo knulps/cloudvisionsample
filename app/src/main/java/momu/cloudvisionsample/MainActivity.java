@@ -7,10 +7,9 @@ import android.support.design.widget.FloatingActionButton;
 import android.support.v7.app.AppCompatActivity;
 import android.support.v7.widget.Toolbar;
 import android.util.Log;
-import android.view.Menu;
-import android.view.MenuItem;
 import android.view.View;
 import android.widget.ImageView;
+import android.widget.ProgressBar;
 import android.widget.TextView;
 import android.widget.Toast;
 
@@ -20,6 +19,7 @@ import com.google.cloud.storage.Blob;
 import com.google.cloud.storage.BlobInfo;
 import com.google.cloud.storage.Storage;
 import com.google.cloud.storage.StorageOptions;
+import com.google.gson.Gson;
 import com.gun0912.tedpermission.PermissionListener;
 import com.gun0912.tedpermission.TedPermission;
 
@@ -47,13 +47,15 @@ public class MainActivity extends AppCompatActivity {
     ImageView imgPic;
     TextView txtCenter;
     TextView txtResult;
-//    UploadTask uploadTask;
+    ProgressBar progressBar;
 
-    //    FirebaseStorage storage = FirebaseStorage.getInstance();
     private static final String CLOUD_VISION_API_KEY = BuildConfig.API_KEY;
     private static final String CLOUD_VISION_URL = "https://vision.googleapis.com/v1/images:annotate?key=%s";
+    private static final String CLOUD_VISION_REQUESTS = "{  \"requests\":[{\"image\":{\"source\":{\"imageUri\": \"%s\"}},\"features\":[{\"type\":\"LANDMARK_DETECTION\"},{\"type\": \"FACE_DETECTION\"}," +
+            "{\"type\":\"LOGO_DETECTION\"},{\"type\":\"LABEL_DETECTION\"},{\"type\":\"IMAGE_PROPERTIES\"},{\"type\":\"SAFE_SEARCH_DETECTION\"},{\"type\":\"WEB_DETECTION\"}]}]}";
 
     Context mContext;
+    Gson gson = new Gson();
 
     private static final String TAG = "MainActivity";
 
@@ -66,6 +68,7 @@ public class MainActivity extends AppCompatActivity {
         imgPic = (ImageView) findViewById(R.id.img_picture);
         txtCenter = (TextView) findViewById(R.id.txt_center);
         txtResult = (TextView) findViewById(R.id.txt_result);
+        progressBar = (ProgressBar) findViewById(R.id.progress_dialog);
 
         Toolbar toolbar = (Toolbar) findViewById(R.id.toolbar);
         setSupportActionBar(toolbar);
@@ -74,10 +77,9 @@ public class MainActivity extends AppCompatActivity {
         fab.setOnClickListener(new View.OnClickListener() {
             @Override
             public void onClick(View view) {
-//                cloudVisionProcess(String.format("gs://momu_test_vision/%s", "location_2017-15-02 02:15:11.jpg"));
                 TedPermission.with(MainActivity.this)
                         .setPermissionListener(permissionlistener)
-                        .setDeniedMessage("If you reject permission,you can not use this service\n\nPlease turn on permissions at [Setting] > [Permission]")
+                        .setDeniedMessage("If you reject permission,you can not use this servicePlease turn on permissions at [Setting] > [Permission]")
                         .setPermissions(WRITE_EXTERNAL_STORAGE)
                         .check();
             }
@@ -85,76 +87,46 @@ public class MainActivity extends AppCompatActivity {
     }
 
     /**
-     * Cloud Vision 요청.
+     * Request to Cloud Vision API
      *
-     * @param imgUri 이미지
+     * @param imgUri Image Uri from Google Cloud Storage (ex. gs://...)
      */
     void cloudVisionProcess(final String imgUri) {
-        Log.e(TAG, "CLOUDVISION PROCESS 시작");
-        final String url = String.format("https://vision.googleapis.com/v1/images:annotate?key=%s", CLOUD_VISION_API_KEY);
-//        String url = String.format(CLOUD_VISION_URL, CLOUD_VISION_API_KEY);
-//
-//        JSONObject imageObject = new JSONObject();
-//        JSONArray featuresArray = new JSONArray();
-//        try {
-//            JSONObject sourceObject = new JSONObject();
-//            sourceObject.put("imageUri", imageUri);
-//            imageObject.put("source", imageObject);
-//
-//            JSONObject typeObject = new JSONObject();
-//            typeObject.put("type", "LANDMARK_DETECTION");
-//
-//            featuresArray.put(typeObject);
-//        } catch (JSONException e) {
-//            e.printStackTrace();
-//        }
+        Log.e(TAG, "start cloudvision process");
+        final String url = String.format(CLOUD_VISION_URL, CLOUD_VISION_API_KEY);
 
-        new Thread() {      //Thread안에 넣어 돌려야 받아올 수 있음.
+        new Thread() {
             @Override
             public void run() {
                 super.run();
                 OkHttpClient client = new OkHttpClient();
 
                 MediaType mediaType = MediaType.parse("application/json");
-                String requestStr = "{\n  \"requests\":[\n    {\n      \"image\":{\n\t\t\"source\": \n    \t\t{\n\t\t\t\t\"imageUri\": \"%s\"\n\t\t\t}\n      },\n      \"features\":[\n        {\n          \"type\":\"LANDMARK_DETECTION\"\n        }\n      ]\n    }\n  ]\n}";
-                RequestBody body = RequestBody.create(mediaType, String.format(requestStr, imgUri));
+                RequestBody body = RequestBody.create(mediaType, String.format(CLOUD_VISION_REQUESTS, imgUri));
                 Request request = new Request.Builder()
                         .url(url)
                         .post(body)
                         .addHeader("content-type", "application/json")
                         .build();
 
-
                 try {
                     Response response = client.newCall(request).execute();
-                    Log.e(TAG, "response : " + response.body().string());
+                    final String resStr = response.body().string();
+                    Log.e(TAG, "response : " + resStr);
+                    runOnUiThread(new Runnable() {
+                        @Override
+                        public void run() {
+                            txtResult.setText(resStr);
+                            txtResult.setVisibility(View.VISIBLE);
+                            removeProgressBar();
+                        }
+                    });
                 } catch (NullPointerException | IOException e) {
                     e.printStackTrace();
+                    removeProgressBar();
                 }
             }
         }.start();
-    }
-
-    @Override
-    public boolean onCreateOptionsMenu(Menu menu) {
-        // Inflate the menu; this adds items to the action bar if it is present.
-        getMenuInflater().inflate(R.menu.menu_main, menu);
-        return true;
-    }
-
-    @Override
-    public boolean onOptionsItemSelected(MenuItem item) {
-        // Handle action bar item clicks here. The action bar will
-        // automatically handle clicks on the Home/Up button, so long
-        // as you specify a parent activity in AndroidManifest.xml.
-        int id = item.getItemId();
-
-        //noinspection SimplifiableIfStatement
-        if (id == R.id.action_settings) {
-            return true;
-        }
-
-        return super.onOptionsItemSelected(item);
     }
 
     PermissionListener permissionlistener = new PermissionListener() {
@@ -165,12 +137,12 @@ public class MainActivity extends AppCompatActivity {
 
         @Override
         public void onPermissionDenied(ArrayList<String> deniedPermissions) {
-            Toast.makeText(MainActivity.this, "Permission Denied\n" + deniedPermissions.toString(), Toast.LENGTH_SHORT).show();
+            Toast.makeText(MainActivity.this, "Permission Denied" + deniedPermissions.toString(), Toast.LENGTH_SHORT).show();
         }
     };
 
     /**
-     * pick image from gallary
+     * pick image from gallery
      */
     void pickImage() {
         TedBottomPicker tedBottomPicker = new TedBottomPicker.Builder(MainActivity.this)
@@ -178,8 +150,12 @@ public class MainActivity extends AppCompatActivity {
                     @Override
                     public void onImageSelected(Uri uri) {
                         // here is selected uri
+                        txtCenter.setVisibility(View.GONE);
                         imgPic.setImageURI(uri);
                         uploadToStorage(uri);
+                        progressBar.setVisibility(View.VISIBLE);
+                        txtResult.setVisibility(View.VISIBLE);
+                        txtResult.setText("please wait...");
 //                        uploadToFirebase(uri);
                     }
                 })
@@ -189,14 +165,16 @@ public class MainActivity extends AppCompatActivity {
     }
 
     /**
-     * http post 요청으로 완전 수동 구현
+     * Upload to Google Cloud Storage
+     *
+     * @param uri Image file uri
      */
     void uploadToStorage(final Uri uri) {
-        new Thread() {      //Thread안에 넣어 돌려야 받아올 수 있음.
+        new Thread() {
             @Override
             public void run() {
                 super.run();
-                Log.e(TAG, "uploadToStorage 진입");
+                Log.e(TAG, "uploadToStorage processing..");
                 try {
                     final InputStream credentialStream = getResources().openRawResource(R.raw.cloud_storage_credential);
 
@@ -211,53 +189,56 @@ public class MainActivity extends AppCompatActivity {
                     String currentTime = dayTime.format(new Date(time));
 
                     InputStream stream = new FileInputStream(new File(uri.getPath()));
-//            byte[] music = new byte[stream.available()];      //이렇게 보내니 파일이 깨짐.
                     String imgUri = "location_" + currentTime + ".jpg";
                     Blob blob = storage.create(BlobInfo.newBuilder("momu_test_vision", imgUri).setContentType("image/*").setAcl(new ArrayList<>(Arrays.asList(Acl.of(Acl.User.ofAllUsers(), Acl.Role.READER))))./*setAcl(acls).*/build(), stream);
                     Log.e(TAG, "blob medialink : " + blob.getMediaLink());
                     if (blob.getMediaLink() != null) {
                         cloudVisionProcess(String.format("gs://momu_test_vision/%s", imgUri));
+                    } else {
+                        removeProgressBar();
                     }
                 } catch (IOException e) {
                     e.printStackTrace();
+                    removeProgressBar();
                 } catch (Exception e) {
                     e.printStackTrace();
+                    removeProgressBar();
                 }
             }
         }.start();
     }
 
+    /**
+     * remove progress bar
+     */
+    public void removeProgressBar() {
+        runOnUiThread(new Runnable() {
+            @Override
+            public void run() {
+                progressBar.setVisibility(View.GONE);
+            }
+        });
+    }
 
-//    /**
-//     * Upload to firebase Storage
-//     *
-//     * @param uri Uri to Upload
-//     */
-//    void uploadToFirebase(Uri uri) {
-//        // Create a storage reference from our app
-//        StorageReference storageRef = storage.getReference();
+//    @Override
+//    public boolean onCreateOptionsMenu(Menu menu) {
+//        // Inflate the menu; this adds items to the action bar if it is present.
+//        getMenuInflater().inflate(R.menu.menu_main, menu);
+//        return true;
+//    }
 //
-//        long time = System.currentTimeMillis();
-//        SimpleDateFormat dayTime = new SimpleDateFormat("yyyy-mm-dd hh:mm:ss");
-//        String currentTime = dayTime.format(new Date(time));
+//    @Override
+//    public boolean onOptionsItemSelected(MenuItem item) {
+//        // Handle action bar item clicks here. The action bar will
+//        // automatically handle clicks on the Home/Up button, so long
+//        // as you specify a parent activity in AndroidManifest.xml.
+//        int id = item.getItemId();
 //
-//        // Create a reference to 'images/mountains.jpg'
-//        StorageReference imageRef = storageRef.child("images/location_" + currentTime + ".jpg");
-//        uploadTask = imageRef.putFile(uri);
+//        //noinspection SimplifiableIfStatement
+//        if (id == R.id.action_settings) {
+//            return true;
+//        }
 //
-//        // Register observers to listen for when the download is done or if it fails
-//        uploadTask.addOnFailureListener(new OnFailureListener() {
-//            @Override
-//            public void onFailure(@NonNull Exception exception) {
-//                // Handle unsuccessful uploads
-//            }
-//        }).addOnSuccessListener(new OnSuccessListener<UploadTask.TaskSnapshot>() {
-//            @Override
-//            public void onSuccess(UploadTask.TaskSnapshot taskSnapshot) {
-//                // taskSnapshot.getMetadata() contains file metadata such as size, content-type, and download URL.
-//                Uri downloadUrl = taskSnapshot.getDownloadUrl();
-//                Log.e(TAG, "downloadUrl : " + downloadUrl);
-//            }
-//        });
+//        return super.onOptionsItemSelected(item);
 //    }
 }

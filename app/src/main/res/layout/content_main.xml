@@ -13,7 +13,8 @@
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
         android:layout_centerInParent="true"
-        android:text="Please Pick a Picture"/>
+        android:gravity="center"
+        android:text="Please Pick a Picture\n(Max size : 4MB)"/>
 
     <ScrollView
         android:layout_width="match_parent"
@@ -29,17 +30,28 @@
                 android:id="@+id/img_picture"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:layout_margin="50dp"/>
+                android:layout_margin="50dp"
+                android:adjustViewBounds="true"/>
 
             <TextView
-                android:visibility="gone"
                 android:id="@+id/txt_result"
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
                 android:layout_gravity="center"
+                android:layout_margin="16dp"
                 android:layout_marginTop="20dp"
-                android:text=""/>
+                android:text="please wait..."
+                android:textIsSelectable="true"
+                android:visibility="gone"/>
         </LinearLayout>
     </ScrollView>
+
+    <ProgressBar
+        android:id="@+id/progress_dialog"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_centerInParent="true"
+        android:indeterminateTint="@color/colorPrimary"
+        android:visibility="gone"/>
 
 </RelativeLayout>
