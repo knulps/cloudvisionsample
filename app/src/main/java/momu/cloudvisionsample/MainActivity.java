@@ -14,10 +14,23 @@ import android.widget.ImageView;
 import android.widget.TextView;
 import android.widget.Toast;
 
+import com.google.auth.oauth2.ServiceAccountCredentials;
+import com.google.cloud.storage.Acl;
+import com.google.cloud.storage.Blob;
+import com.google.cloud.storage.BlobInfo;
+import com.google.cloud.storage.Storage;
+import com.google.cloud.storage.StorageOptions;
 import com.gun0912.tedpermission.PermissionListener;
+import com.gun0912.tedpermission.TedPermission;
 
+import java.io.File;
+import java.io.FileInputStream;
 import java.io.IOException;
+import java.io.InputStream;
+import java.text.SimpleDateFormat;
 import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.Date;
 
 import gun0912.tedbottompicker.TedBottomPicker;
 import okhttp3.MediaType;
@@ -26,14 +39,17 @@ import okhttp3.Request;
 import okhttp3.RequestBody;
 import okhttp3.Response;
 
+import static android.Manifest.permission.WRITE_EXTERNAL_STORAGE;
+
 
 public class MainActivity extends AppCompatActivity {
 
     ImageView imgPic;
     TextView txtCenter;
+    TextView txtResult;
 //    UploadTask uploadTask;
 
-//    FirebaseStorage storage = FirebaseStorage.getInstance();
+    //    FirebaseStorage storage = FirebaseStorage.getInstance();
     private static final String CLOUD_VISION_API_KEY = BuildConfig.API_KEY;
     private static final String CLOUD_VISION_URL = "https://vision.googleapis.com/v1/images:annotate?key=%s";
 
@@ -49,6 +65,8 @@ public class MainActivity extends AppCompatActivity {
 
         imgPic = (ImageView) findViewById(R.id.img_picture);
         txtCenter = (TextView) findViewById(R.id.txt_center);
+        txtResult = (TextView) findViewById(R.id.txt_result);
+
         Toolbar toolbar = (Toolbar) findViewById(R.id.toolbar);
         setSupportActionBar(toolbar);
 
@@ -56,12 +74,12 @@ public class MainActivity extends AppCompatActivity {
         fab.setOnClickListener(new View.OnClickListener() {
             @Override
             public void onClick(View view) {
-                cloudVisionProcess("gs://misehan-d3bfe.appspot.com/images/location_2017-09-18 02:09:47.jpg");
-//                TedPermission.with(MainActivity.this)
-//                        .setPermissionListener(permissionlistener)
-//                        .setDeniedMessage("If you reject permission,you can not use this service\n\nPlease turn on permissions at [Setting] > [Permission]")
-//                        .setPermissions(Manifest.permission.WRITE_EXTERNAL_STORAGE)
-//                        .check();
+//                cloudVisionProcess(String.format("gs://momu_test_vision/%s", "location_2017-15-02 02:15:11.jpg"));
+                TedPermission.with(MainActivity.this)
+                        .setPermissionListener(permissionlistener)
+                        .setDeniedMessage("If you reject permission,you can not use this service\n\nPlease turn on permissions at [Setting] > [Permission]")
+                        .setPermissions(WRITE_EXTERNAL_STORAGE)
+                        .check();
             }
         });
     }
@@ -69,10 +87,11 @@ public class MainActivity extends AppCompatActivity {
     /**
      * Cloud Vision 요청.
      *
-     * @param imageUri 이미지
+     * @param imgUri 이미지
      */
-    void cloudVisionProcess(final String imageUri) {
+    void cloudVisionProcess(final String imgUri) {
         Log.e(TAG, "CLOUDVISION PROCESS 시작");
+        final String url = String.format("https://vision.googleapis.com/v1/images:annotate?key=%s", CLOUD_VISION_API_KEY);
 //        String url = String.format(CLOUD_VISION_URL, CLOUD_VISION_API_KEY);
 //
 //        JSONObject imageObject = new JSONObject();
@@ -97,13 +116,12 @@ public class MainActivity extends AppCompatActivity {
                 OkHttpClient client = new OkHttpClient();
 
                 MediaType mediaType = MediaType.parse("application/json");
-                RequestBody body = RequestBody.create(mediaType, "{\n  \"requests\":[\n    {\n      \"image\":{\n\t\t\"source\": \n    \t\t{\n\t\t\t\t\"imageUri\": \"gs://momu_vision/sich2.jpg\"\n\t\t\t}\n      },\n      \"features\":[\n        {\n          \"type\":\"LANDMARK_DETECTION\"\n        }\n      ]\n    }\n  ]\n}");
+                String requestStr = "{\n  \"requests\":[\n    {\n      \"image\":{\n\t\t\"source\": \n    \t\t{\n\t\t\t\t\"imageUri\": \"%s\"\n\t\t\t}\n      },\n      \"features\":[\n        {\n          \"type\":\"LANDMARK_DETECTION\"\n        }\n      ]\n    }\n  ]\n}";
+                RequestBody body = RequestBody.create(mediaType, String.format(requestStr, imgUri));
                 Request request = new Request.Builder()
-                        .url("https://vision.googleapis.com/v1/images:annotate?key=AIzaSyBFTqzScNvnTNZ_220kJUELiUw7avkjGJ4")
+                        .url(url)
                         .post(body)
                         .addHeader("content-type", "application/json")
-                        .addHeader("cache-control", "no-cache")
-                        .addHeader("postman-token", "e7b84ed1-8491-cac0-02fd-83e884870f0d")
                         .build();
 
 
@@ -161,6 +179,7 @@ public class MainActivity extends AppCompatActivity {
                     public void onImageSelected(Uri uri) {
                         // here is selected uri
                         imgPic.setImageURI(uri);
+                        uploadToStorage(uri);
 //                        uploadToFirebase(uri);
                     }
                 })
@@ -168,6 +187,46 @@ public class MainActivity extends AppCompatActivity {
 
         tedBottomPicker.show(getSupportFragmentManager());
     }
+
+    /**
+     * http post 요청으로 완전 수동 구현
+     */
+    void uploadToStorage(final Uri uri) {
+        new Thread() {      //Thread안에 넣어 돌려야 받아올 수 있음.
+            @Override
+            public void run() {
+                super.run();
+                Log.e(TAG, "uploadToStorage 진입");
+                try {
+                    final InputStream credentialStream = getResources().openRawResource(R.raw.cloud_storage_credential);
+
+                    Storage storage = StorageOptions.newBuilder()
+                            .setCredentials(ServiceAccountCredentials.fromStream(credentialStream))
+                            .setProjectId("misehan-d3bfe")
+                            .build()
+                            .getService();
+
+                    long time = System.currentTimeMillis();
+                    SimpleDateFormat dayTime = new SimpleDateFormat("yyyy-mm-dd hh:mm:ss");
+                    String currentTime = dayTime.format(new Date(time));
+
+                    InputStream stream = new FileInputStream(new File(uri.getPath()));
+//            byte[] music = new byte[stream.available()];      //이렇게 보내니 파일이 깨짐.
+                    String imgUri = "location_" + currentTime + ".jpg";
+                    Blob blob = storage.create(BlobInfo.newBuilder("momu_test_vision", imgUri).setContentType("image/*").setAcl(new ArrayList<>(Arrays.asList(Acl.of(Acl.User.ofAllUsers(), Acl.Role.READER))))./*setAcl(acls).*/build(), stream);
+                    Log.e(TAG, "blob medialink : " + blob.getMediaLink());
+                    if (blob.getMediaLink() != null) {
+                        cloudVisionProcess(String.format("gs://momu_test_vision/%s", imgUri));
+                    }
+                } catch (IOException e) {
+                    e.printStackTrace();
+                } catch (Exception e) {
+                    e.printStackTrace();
+                }
+            }
+        }.start();
+    }
+
 
 //    /**
 //     * Upload to firebase Storage
@@ -200,43 +259,5 @@ public class MainActivity extends AppCompatActivity {
 //                Log.e(TAG, "downloadUrl : " + downloadUrl);
 //            }
 //        });
-//    }
-
-//    /**
-//     * http post 요청으로 완전 수동 구현
-//     */
-//    void uploadToStorage(Uri uri) {
-//
-//        try {
-//            final InputStream credentialStream = getResources().openRawResource(R.raw.vision_sample_credential);
-//
-//            Storage storage = StorageOptions.newBuilder()
-//                    .setCredentials(ServiceAccountCredentials.fromStream(credentialStream))
-//                    .setProjectId(CConstants.CLOUD_PRJ_ID)
-//                    .build()
-//                    .getService();
-//
-//            long time = System.currentTimeMillis();
-//            SimpleDateFormat dayTime = new SimpleDateFormat("yyyy-mm-dd hh:mm:ss");
-//            String currentTime = dayTime.format(new Date(time));
-//
-//            InputStream stream = new FileInputStream(new File(uri.getPath()));
-////            byte[] music = new byte[stream.available()];      //이렇게 보내니 파일이 깨짐.
-//            Blob blob = storage.create(BlobInfo.newBuilder("momu_vision", "images/location_" + currentTime + ".jpg").setContentType("image/*")./*setAcl(acls).*/build(), stream);
-//            Log.e(TAG, "blob medialink : " + blob.getMediaLink());
-//        } catch (IOException e) {
-//            e.printStackTrace();
-//        } catch (Exception e) {
-//            e.printStackTrace();
-//        }
-//
-////        runOnUiThread(new Runnable() {
-////            @Override
-////            public void run() {
-////                if (!isFinishing() && loadingDialog != null && loadingDialog.isShowing()) {
-////                    loadingDialog.dismiss();
-////                }
-////            }
-////        });
 //    }
 }
